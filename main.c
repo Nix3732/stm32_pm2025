@@ -2,110 +2,95 @@
 #include <stm32f10x.h>
 
 typedef struct {
-    uint32_t pause_duration;
-    int scale_factor;
-} blink_config_t;
+    uint32_t delay;
+    int index;
+} freq_t;
 
-static const blink_config_t blink_speeds[] = {
-    {64000000, -6}, {32000000, -5}, {16000000, -4},
-    {8000000,  -3}, {4000000,  -2}, {2000000,  -1},
-    {1000000,   0}, {500000,    1}, {250000,    2},
-    {125000,    3}, {62500,     4}, {31250,     5},
+const freq_t freqs[] = {
+    {64000000, -6},
+    {32000000, -5},
+    {16000000, -4},
+    {8000000,  -3},
+    {4000000,  -2},
+    {2000000,  -1},
+    {1000000,   0},
+    {500000,    1},
+    {250000,    2},
+    {125000,    3},
+    {62500,     4},
+    {31250,     5},
     {15625,     6}
 };
 
-#define SPEED_COUNT (sizeof(blink_speeds) / sizeof(blink_speeds[0]))
-#define DEFAULT_SPEED_INDEX 6
+const int TOTAL_FREQS = 13;
+int now_freq_idx = 6;
+int freq_updated = 0;
 
-static uint8_t active_speed_index = DEFAULT_SPEED_INDEX;
-static uint8_t speed_updated_flag = 0;
-
-static void wait_cycles(uint32_t cycle_count) {
-    volatile uint32_t counter;
-    for (counter = 0; counter < cycle_count; counter++) {
-        __asm__("nop");
+void wait(uint32_t count) {
+    volatile uint32_t i;
+    for (i = 0; i < count; i++) {
+        __NOP();
     }
 }
 
-static void setup_led_gpio(void) {
-    RCC->APB2ENR |= (1 << 4);
-    GPIOC->CRH = (GPIOC->CRH & ~(0xF << 20)) | (0x2 << 20);
+void setup_led(void) {
+    RCC->APB2ENR |= RCC_APB2ENR_IOPCEN;
+    GPIOC->CRH &= ~GPIO_CRH_CNF13;
+    GPIOC->CRH |= GPIO_CRH_MODE13_0;
 }
 
-static void setup_button_gpio(void) {
-    RCC->APB2ENR |= (1 << 3);
-    GPIOB->CRL = (GPIOB->CRL & ~(0xF << 0)) | (0x8 << 0);
-    GPIOB->CRL = (GPIOB->CRL & ~(0xF << 4)) | (0x8 << 4);
-    GPIOB->ODR |= (1 << 0) | (1 << 1);
+void setup_btns(void) {
+    RCC->APB2ENR |= RCC_APB2ENR_IOPBEN;
+    GPIOB->CRL &= ~(GPIO_CRL_CNF0 | GPIO_CRL_CNF1);
+    GPIOB->CRL |= (GPIO_CRL_CNF0_1 | GPIO_CRL_CNF1_1);
+    GPIOB->BSRR = GPIO_BSRR_BS0 | GPIO_BSRR_BS1;
 }
 
-static void process_button_input(void) {
-    static uint8_t prev_button0 = 1, prev_button1 = 1;
-    uint8_t current_button0, current_button1;
-    
-    current_button0 = (GPIOB->IDR & (1 << 0)) ? 1 : 0;
-    current_button1 = (GPIOB->IDR & (1 << 1)) ? 1 : 0;
-    
-    if (current_button0 == 0 && prev_button0 == 1) {
-        if (active_speed_index < SPEED_COUNT - 1) {
-            active_speed_index++;
-            speed_updated_flag = 1;
+void check_btns(void) {
+    if (!(GPIOB->IDR & GPIO_IDR_IDR0)) {
+        if (now_freq_idx < TOTAL_FREQS - 1) {
+            now_freq_idx++;
+            freq_updated = 1;
         }
-        while ((GPIOB->IDR & (1 << 0)) == 0) {
-            wait_cycles(5000);
+        while (!(GPIOB->IDR & GPIO_IDR_IDR0)) {
+            wait(10000);
         }
+        return;
     }
     
-    if (current_button1 == 0 && prev_button1 == 1) {
-        if (active_speed_index > 0) {
-            active_speed_index--;
-            speed_updated_flag = 1;
+    if (!(GPIOB->IDR & GPIO_IDR_IDR1)) {
+        if (now_freq_idx > 0) {
+            now_freq_idx--;
+            freq_updated = 1;
         }
-        while ((GPIOB->IDR & (1 << 1)) == 0) {
-            wait_cycles(5000);
+        while (!(GPIOB->IDR & GPIO_IDR_IDR1)) {
+            wait(10000);
         }
+        return;
     }
-    
-    prev_button0 = current_button0;
-    prev_button1 = current_button1;
-}
-
-static void show_speed_change(void) {
-    uint8_t i;
-    
-    for (i = 0; i < 3; i++) {
-        GPIOC->BSRR = (1 << 13);
-        wait_cycles(80000);
-        GPIOC->BRR = (1 << 13);
-        wait_cycles(80000);
-    }
-    
-    speed_updated_flag = 0;
 }
 
 int main(void) {
-    uint32_t blink_interval;
-    
-    RCC->APB2ENR |= (1 << 0);
-    
-    setup_led_gpio();
-    setup_button_gpio();
+    RCC->APB2ENR |= RCC_APB2ENR_AFIOEN;
+    setup_led();
+    setup_btns();
     
     while (1) {
-        process_button_input();
-        
-        if (speed_updated_flag) {
-            show_speed_change();
+        check_btns();
+        if (freq_updated) {
+            for (int i = 0; i < 3; i++) {
+                GPIOC->ODR |= GPIO_ODR_ODR13;
+                wait(100000);
+                GPIOC->ODR &= ~GPIO_ODR_ODR13;
+                wait(100000);
+            }
+            freq_updated = 0;
         }
         
-        blink_interval = blink_speeds[active_speed_index].pause_duration / 2;
+        GPIOC->ODR |= GPIO_ODR_ODR13;
+        wait(freqs[now_freq_idx].delay / 2);
         
-        GPIOC->BSRR = (1 << 13);
-        wait_cycles(blink_interval);
-        
-        GPIOC->BRR = (1 << 13);
-        wait_cycles(blink_interval);
+        GPIOC->ODR &= ~GPIO_ODR_ODR13;
+        wait(freqs[now_freq_idx].delay / 2);
     }
-    
-    return 0;
 }
