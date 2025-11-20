@@ -161,16 +161,3 @@ void SSD1306_DrawChessBoard(void) {
         }
     }
 }
-
-void initialize_spi_peripheral(void) {
-    // SPI initialization code would be here
-}
-
-void transmit_spi_byte(uint8_t byte_value) {
-    // SPI transmit implementation
-}
-
-uint8_t receive_spi_byte(void) {
-    // SPI receive implementation
-    return 0;
-}
