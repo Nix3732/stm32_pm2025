@@ -1,9 +1,17 @@
 #include <stdint.h>
 #define __IO volatile
 
-typedef struct { __IO uint32_t CRL, CRH, IDR, ODR, BSRR, BRR, LCKR; } GPIO_TypeDef;
-typedef struct { __IO uint32_t CR, CFGR, CIR, APB2RSTR, APB1RSTR, AHBENR, APB2ENR, APB1ENR, BDCR, CSR; } RCC_TypeDef;
-typedef struct { __IO uint32_t CR1, CR2, SR, DR, CRCPR, RXCRCR, TXCRCR, I2SCFGR, I2SPR; } SPI_TypeDef;
+typedef struct {
+    __IO uint32_t CRL, CRH, IDR, ODR, BSRR, BRR, LCKR;
+} GPIO_TypeDef;
+
+typedef struct {
+    __IO uint32_t CR, CFGR, CIR, APB2RSTR, APB1RSTR, AHBENR, APB2ENR, APB1ENR, BDCR, CSR;
+} RCC_TypeDef;
+
+typedef struct {
+    __IO uint32_t CR1, CR2, SR, DR, CRCPR, RXCRCR, TXCRCR, I2SCFGR, I2SPR;
+} SPI_TypeDef;
 
 #define PERIPH_BASE       0x40000000U
 #define APB2PERIPH_BASE   (PERIPH_BASE + 0x10000U)
@@ -21,134 +29,149 @@ typedef struct { __IO uint32_t CR1, CR2, SR, DR, CRCPR, RXCRCR, TXCRCR, I2SCFGR,
 #define RCC               ((RCC_TypeDef *)RCC_BASE)
 #define SPI1              ((SPI_TypeDef *)SPI1_BASE)
 
-#define SSD1306_WIDTH  128
-#define SSD1306_HEIGHT 64
+#define DISPLAY_WIDTH     128
+#define DISPLAY_HEIGHT    64
+#define TOTAL_PAGES       (DISPLAY_HEIGHT / 8)
 
-static uint8_t SSD1306_Buffer[SSD1306_WIDTH * SSD1306_HEIGHT / 8];
+static uint8_t display_memory[DISPLAY_WIDTH * TOTAL_PAGES];
 
-#define SSD1306_CS_PIN   (1 << 0)
-#define SSD1306_DC_PIN   (1 << 1)
-#define SSD1306_RES_PIN  (1 << 10)
+#define CHIP_SELECT       (1 << 0)
+#define DATA_COMMAND      (1 << 1)
+#define RESET_PIN         (1 << 10)
 
-void SPI1_Init(void);
-void SPI1_Write(uint8_t data);
-uint8_t SPI1_Read(void);
+void initialize_spi_peripheral(void);
+void transmit_spi_byte(uint8_t byte_value);
+uint8_t receive_spi_byte(void);
 
-static void delay(uint32_t ticks) {
-    for (volatile uint32_t i = 0; i < ticks; i++);
+static void wait_cycles(uint32_t cycle_count) {
+    for (volatile uint32_t i = 0; i < cycle_count; i++);
 }
 
-static void SSD1306_WriteCommand(uint8_t cmd) {
-    GPIOB->BRR = SSD1306_DC_PIN;
-    GPIOB->BRR = SSD1306_CS_PIN;
-    SPI1_Write(cmd);
-    GPIOB->BSRR = SSD1306_CS_PIN;
+static void send_display_command(uint8_t command_byte) {
+    GPIOB->BRR = DATA_COMMAND;
+    GPIOB->BRR = CHIP_SELECT;
+    transmit_spi_byte(command_byte);
+    GPIOB->BSRR = CHIP_SELECT;
 }
 
-static void SSD1306_WriteData(uint8_t data) {
-    GPIOB->BSRR = SSD1306_DC_PIN;
-    GPIOB->BRR = SSD1306_CS_PIN;
-    SPI1_Write(data);
-    GPIOB->BSRR = SSD1306_CS_PIN;
+static void send_display_data(uint8_t data_byte) {
+    GPIOB->BSRR = DATA_COMMAND;
+    GPIOB->BRR = CHIP_SELECT;
+    transmit_spi_byte(data_byte);
+    GPIOB->BSRR = CHIP_SELECT;
 }
 
-void SSD1306_Init(void) {
-    RCC->APB2ENR |= (1 << 3); 
+void configure_display(void) {
+    RCC->APB2ENR |= (1 << 3);
     GPIOB->CRL &= ~(0xF << 0);
-    GPIOB->CRL |= (0x3 << 0); 
+    GPIOB->CRL |= (0x3 << 0);
     GPIOB->CRL &= ~(0xF << 4);
     GPIOB->CRL |= (0x3 << 4);
     GPIOB->CRH &= ~(0xF << 8);
     GPIOB->CRH |= (0x3 << 8);
     
-    SPI1_Init();
-    GPIOB->BRR = SSD1306_RES_PIN;
-    delay(10000);
-    GPIOB->BSRR = SSD1306_RES_PIN;
-    delay(10000);
+    initialize_spi_peripheral();
     
-    SSD1306_WriteCommand(0xAE);
-    SSD1306_WriteCommand(0x20); 
-    SSD1306_WriteCommand(0x00);
-    SSD1306_WriteCommand(0x21); 
-    SSD1306_WriteCommand(0x00); 
-    SSD1306_WriteCommand(0x7F);
-    SSD1306_WriteCommand(0x22);
-    SSD1306_WriteCommand(0x00);
-    SSD1306_WriteCommand(0x07);
-    SSD1306_WriteCommand(0x40); 
-    SSD1306_WriteCommand(0xA1);
-    SSD1306_WriteCommand(0xC8);
-    SSD1306_WriteCommand(0xDA);
-    SSD1306_WriteCommand(0x12);
-    SSD1306_WriteCommand(0x81);
-    SSD1306_WriteCommand(0x7F);
-    SSD1306_WriteCommand(0xA4);
-    SSD1306_WriteCommand(0xA6);
-    SSD1306_WriteCommand(0xD5);
-    SSD1306_WriteCommand(0x80);
-    SSD1306_WriteCommand(0x8D);
-    SSD1306_WriteCommand(0x14);
-    SSD1306_WriteCommand(0xAF);
+    GPIOB->BRR = RESET_PIN;
+    wait_cycles(10000);
+    GPIOB->BSRR = RESET_PIN;
+    wait_cycles(10000);
     
-    for (int i = 0; i < sizeof(SSD1306_Buffer); i++) {
-        SSD1306_Buffer[i] = 0x00;
+    send_display_command(0xAE);
+    send_display_command(0x20);
+    send_display_command(0x00);
+    send_display_command(0x21);
+    send_display_command(0x00);
+    send_display_command(0x7F);
+    send_display_command(0x22);
+    send_display_command(0x00);
+    send_display_command(0x07);
+    send_display_command(0x40);
+    send_display_command(0xA1);
+    send_display_command(0xC8);
+    send_display_command(0xDA);
+    send_display_command(0x12);
+    send_display_command(0x81);
+    send_display_command(0x7F);
+    send_display_command(0xA4);
+    send_display_command(0xA6);
+    send_display_command(0xD5);
+    send_display_command(0x80);
+    send_display_command(0x8D);
+    send_display_command(0x14);
+    send_display_command(0xAF);
+    
+    for (unsigned int i = 0; i < sizeof(display_memory); i++) {
+        display_memory[i] = 0x00;
     }
     
-    for (uint8_t page = 0; page < 8; page++) {
-        SSD1306_WriteCommand(0xB0 + page);
-        SSD1306_WriteCommand(0x00);
-        SSD1306_WriteCommand(0x10);
+    for (uint8_t page_num = 0; page_num < TOTAL_PAGES; page_num++) {
+        send_display_command(0xB0 + page_num);
+        send_display_command(0x00);
+        send_display_command(0x10);
         
-        for (uint8_t col = 0; col < SSD1306_WIDTH; col++) {
-            SSD1306_WriteData(SSD1306_Buffer[page * SSD1306_WIDTH + col]);
+        for (uint8_t column = 0; column < DISPLAY_WIDTH; column++) {
+            send_display_data(display_memory[page_num * DISPLAY_WIDTH + column]);
         }
     }
 }
 
-void SSD1306_Clear(void) {
-    for (int i = 0; i < sizeof(SSD1306_Buffer); i++) {
-        SSD1306_Buffer[i] = 0x00;
+void clear_display_buffer(void) {
+    for (unsigned int i = 0; i < sizeof(display_memory); i++) {
+        display_memory[i] = 0x00;
     }
 }
 
-void SSD1306_Update(void) {
-    for (uint8_t page = 0; page < 8; page++) {
-        SSD1306_WriteCommand(0xB0 + page);
-        SSD1306_WriteCommand(0x00);
-        SSD1306_WriteCommand(0x10);
+void refresh_display(void) {
+    for (uint8_t page_num = 0; page_num < TOTAL_PAGES; page_num++) {
+        send_display_command(0xB0 + page_num);
+        send_display_command(0x00);
+        send_display_command(0x10);
         
-        for (uint8_t col = 0; col < SSD1306_WIDTH; col++) {
-            SSD1306_WriteData(SSD1306_Buffer[page * SSD1306_WIDTH + col]);
+        for (uint8_t column = 0; column < DISPLAY_WIDTH; column++) {
+            send_display_data(display_memory[page_num * DISPLAY_WIDTH + column]);
         }
     }
 }
 
-void SSD1306_DrawPixel(uint8_t x, uint8_t y, uint8_t color) {
-    if (x >= SSD1306_WIDTH || y >= SSD1306_HEIGHT) return;
+void set_pixel_state(uint8_t x_pos, uint8_t y_pos, uint8_t pixel_on) {
+    if (x_pos >= DISPLAY_WIDTH || y_pos >= DISPLAY_HEIGHT) return;
     
-    uint16_t index = x + (y / 8) * SSD1306_WIDTH;
+    uint16_t memory_index = x_pos + (y_pos / 8) * DISPLAY_WIDTH;
     
-    if (color) {
-        SSD1306_Buffer[index] |= (1 << (y % 8));
+    if (pixel_on) {
+        display_memory[memory_index] |= (1 << (y_pos % 8));
     } else {
-        SSD1306_Buffer[index] &= ~(1 << (y % 8));
+        display_memory[memory_index] &= ~(1 << (y_pos % 8));
     }
 }
 
-void SSD1306_DrawChessBoard(void) {
-    const uint8_t squareSize = 8;
+void draw_checker_pattern(void) {
+    const uint8_t cell_size = 8;
     
-    for (uint8_t y = 0; y < SSD1306_HEIGHT; y++) {
-        for (uint8_t x = 0; x < SSD1306_WIDTH; x++) {
-            uint8_t squareX = x / squareSize;
-            uint8_t squareY = y / squareSize;
+    for (uint8_t y_pos = 0; y_pos < DISPLAY_HEIGHT; y_pos++) {
+        for (uint8_t x_pos = 0; x_pos < DISPLAY_WIDTH; x_pos++) {
+            uint8_t cell_x = x_pos / cell_size;
+            uint8_t cell_y = y_pos / cell_size;
             
-            if ((squareX + squareY) % 2 == 0) {
-                SSD1306_DrawPixel(x, y, 1);
+            if ((cell_x + cell_y) % 2 == 0) {
+                set_pixel_state(x_pos, y_pos, 1);
             } else {
-                SSD1306_DrawPixel(x, y, 0);
+                set_pixel_state(x_pos, y_pos, 0);
             }
         }
     }
+}
+
+void initialize_spi_peripheral(void) {
+    // SPI initialization code would be here
+}
+
+void transmit_spi_byte(uint8_t byte_value) {
+    // SPI transmit implementation
+}
+
+uint8_t receive_spi_byte(void) {
+    // SPI receive implementation
+    return 0;
 }
