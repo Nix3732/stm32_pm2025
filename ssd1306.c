@@ -29,11 +29,10 @@ typedef struct {
 #define RCC               ((RCC_TypeDef *)RCC_BASE)
 #define SPI1              ((SPI_TypeDef *)SPI1_BASE)
 
-#define DISPLAY_WIDTH     128
-#define DISPLAY_HEIGHT    64
-#define TOTAL_PAGES       (DISPLAY_HEIGHT / 8)
+#define SSD1306_WIDTH  128
+#define SSD1306_HEIGHT 64
 
-static uint8_t display_memory[DISPLAY_WIDTH * TOTAL_PAGES];
+static uint8_t display_memory[SSD1306_WIDTH * SSD1306_HEIGHT / 8];
 
 #define CHIP_SELECT       (1 << 0)
 #define DATA_COMMAND      (1 << 1)
@@ -61,7 +60,7 @@ static void send_display_data(uint8_t data_byte) {
     GPIOB->BSRR = CHIP_SELECT;
 }
 
-void configure_display(void) {
+void SSD1306_Init(void) {
     RCC->APB2ENR |= (1 << 3);
     GPIOB->CRL &= ~(0xF << 0);
     GPIOB->CRL |= (0x3 << 0);
@@ -105,59 +104,59 @@ void configure_display(void) {
         display_memory[i] = 0x00;
     }
     
-    for (uint8_t page_num = 0; page_num < TOTAL_PAGES; page_num++) {
+    for (uint8_t page_num = 0; page_num < 8; page_num++) {
         send_display_command(0xB0 + page_num);
         send_display_command(0x00);
         send_display_command(0x10);
         
-        for (uint8_t column = 0; column < DISPLAY_WIDTH; column++) {
-            send_display_data(display_memory[page_num * DISPLAY_WIDTH + column]);
+        for (uint8_t column = 0; column < SSD1306_WIDTH; column++) {
+            send_display_data(display_memory[page_num * SSD1306_WIDTH + column]);
         }
     }
 }
 
-void clear_display_buffer(void) {
+void SSD1306_Clear(void) {
     for (unsigned int i = 0; i < sizeof(display_memory); i++) {
         display_memory[i] = 0x00;
     }
 }
 
-void refresh_display(void) {
-    for (uint8_t page_num = 0; page_num < TOTAL_PAGES; page_num++) {
+void SSD1306_Update(void) {
+    for (uint8_t page_num = 0; page_num < 8; page_num++) {
         send_display_command(0xB0 + page_num);
         send_display_command(0x00);
         send_display_command(0x10);
         
-        for (uint8_t column = 0; column < DISPLAY_WIDTH; column++) {
-            send_display_data(display_memory[page_num * DISPLAY_WIDTH + column]);
+        for (uint8_t column = 0; column < SSD1306_WIDTH; column++) {
+            send_display_data(display_memory[page_num * SSD1306_WIDTH + column]);
         }
     }
 }
 
-void set_pixel_state(uint8_t x_pos, uint8_t y_pos, uint8_t pixel_on) {
-    if (x_pos >= DISPLAY_WIDTH || y_pos >= DISPLAY_HEIGHT) return;
+void SSD1306_DrawPixel(uint8_t x, uint8_t y, uint8_t color) {
+    if (x >= SSD1306_WIDTH || y >= SSD1306_HEIGHT) return;
     
-    uint16_t memory_index = x_pos + (y_pos / 8) * DISPLAY_WIDTH;
+    uint16_t memory_index = x + (y / 8) * SSD1306_WIDTH;
     
-    if (pixel_on) {
-        display_memory[memory_index] |= (1 << (y_pos % 8));
+    if (color) {
+        display_memory[memory_index] |= (1 << (y % 8));
     } else {
-        display_memory[memory_index] &= ~(1 << (y_pos % 8));
+        display_memory[memory_index] &= ~(1 << (y % 8));
     }
 }
 
-void draw_checker_pattern(void) {
+void SSD1306_DrawChessBoard(void) {
     const uint8_t cell_size = 8;
     
-    for (uint8_t y_pos = 0; y_pos < DISPLAY_HEIGHT; y_pos++) {
-        for (uint8_t x_pos = 0; x_pos < DISPLAY_WIDTH; x_pos++) {
+    for (uint8_t y_pos = 0; y_pos < SSD1306_HEIGHT; y_pos++) {
+        for (uint8_t x_pos = 0; x_pos < SSD1306_WIDTH; x_pos++) {
             uint8_t cell_x = x_pos / cell_size;
             uint8_t cell_y = y_pos / cell_size;
             
             if ((cell_x + cell_y) % 2 == 0) {
-                set_pixel_state(x_pos, y_pos, 1);
+                SSD1306_DrawPixel(x_pos, y_pos, 1);
             } else {
-                set_pixel_state(x_pos, y_pos, 0);
+                SSD1306_DrawPixel(x_pos, y_pos, 0);
             }
         }
     }
